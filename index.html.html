@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>2025 Growth Map</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    :root { --panel-w: 380px; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    #app {
+      transition: grid-template-columns 180ms ease;
+ display: grid; grid-template-columns: var(--panel-w) 1fr; height: 100%; }
+    #panel {
+      min-width: 0;
+      transition: width 180ms ease, padding 180ms ease;
+
+      padding: 14px;
+      border-right: 1px solid #e6e6e6;
+      overflow: auto;
+      background: #fafafa;
+    }
+    #map { height: 100%; width: 100%; }
+    h1 { font-size: 18px; margin: 0 0 10px 0; }
+    .hint { font-size: 12px; color: #444; line-height: 1.35; margin: 0 0 10px 0; }
+    .legend-box {
+      margin-top: 12px; padding: 10px; border-radius: 10px;
+      background: white; border: 1px solid #e0e0e0;
+    }
+    .legend-title { font-weight: 700; margin-bottom: 8px; }
+    .legend-scale { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: center; }
+    .swatch { width: 18px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.15); }
+    .stat {
+      margin-top: 10px; font-size: 12px; color: #222;
+      padding: 10px; border-radius: 10px; background: white; border: 1px solid #e0e0e0;
+    }
+    .small { font-size: 11px; color: #555; }
+    .search { margin-top: 10px; }
+    input[type="search"] {
+      width: 100%; padding: 9px 10px; border-radius: 10px;
+      border: 1px solid #d0d0d0; background: white; font-size: 13px;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
+  
+    /* Collapsible panel */
+    #panelToggle { user-select: none; }
+    body.panel-collapsed #app { grid-template-columns: 0px 1fr; }
+    body.panel-collapsed #panel { width: 0; padding: 0; border: none; overflow: hidden; pointer-events: none; visibility: hidden; }
+    body.panel-collapsed #map { width: 100%; }
+    /* Floating show button when collapsed */
+    #panelShowBtn {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      border: 1px solid #d0d0d0;
+      background: white;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      display: none;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    }
+    body.panel-collapsed #panelShowBtn { display: inline-block; }
+
+
+    /* Help some mobile browsers repaint SVG vectors reliably */
+    .leaflet-overlay-pane svg { transform: translateZ(0); }
+
+</style>
+</head>
+
+<body>
+  <div id="app">
+    <div id="panel">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><h1 style="margin:0;">2025 Growth by Country (Interactive Map)</h1><button id="panelToggle" aria-label="Toggle panel" style="border:1px solid #d0d0d0; background:#fff; border-radius:10px; padding:8px 10px; font-size:13px; cursor:pointer;">Hide</button></div>
+      <p class="hint">
+        Colour shows <b>% increase over 2024</b> per country. Grey means no name match.
+      </p>
+
+      <div class="legend-box" id="legend">
+        <div class="legend-title">Legend (Growth %)</div>
+        <div id="legendItems"></div>
+        <div class="small" style="margin-top:8px;">Search below, then press Enter.</div>
+      </div>
+
+      <div class="search">
+        <input id="searchBox" type="search" placeholder="Search country (example: Australia or St Lucia)" />
+      </div>
+
+      <div class="stat">
+        <div><b>Matched countries:</b> <span id="coverage">0</span></div>
+        <div class="small">Data points embedded: <b>207</b>. Add aliases if needed.</div>
+      </div>
+      <p class="small" style="margin-top:12px;">
+        Source: uploaded 2025 Service Year Report PDF. Data used: <code>country → % inc.</code> only.
+      </p>
+    </div>
+
+    <button id="panelShowBtn" aria-label="Show panel">Legend</button>
+    <div id="map"></div>
+  </div>
+
+  <script>
+    const growthByCountry = {"Albania": -1, "American Samoa": 7, "Andorra": 4, "Angola": 6, "Anguilla": 8, "Antigua": -2, "Argentina": 1, "Armenia": 1, "Aruba": 1, "Australia": 0, "Austria": 0, "Azerbaijan": -3, "Azores": 2, "Bahamas": 0, "Bangladesh": 14, "Barbados": 0, "Belgium": 1, "Belize": 1, "Benin": 6, "Bermuda": 2, "Bolivia": 3, "Bonaire": 8, "BosniaandHerzegovina": -2, "Botswana": 4, "Brazil": 2, "Britain": 0, "Bulgaria": 3, "BurkinaFaso": 4, "Burundi": 10, "Cambodia": 9, "Cameroon": 4, "Canada": 2, "CapeVerde": 1, "CaymanIslands": 2, "CentralAfricanRepublic": 11, "Chad": 11, "Chile": 1, "Chuuk": 0, "Colombia": 2, "Congo,Republicof": 8, "CookIslands": -2, "Costa Rica": 1, "Coted’Ivoire": 6, "Croatia": -1, "Cuba": -1, "Curac¸ao": 1, "Cyprus": 0, "CzechRepublic": 2, "Denmark": 1, "Dominica": -1, "Dominican Republic": 1, "Ecuador": 2, "El Salvador": 0, "EquatorialGuinea": 11, "Estonia": 0, "Eswatini": 4, "Ethiopia": 6, "FalklandIslands": -30, "FaroeIslands": -8, "Fiji": 1, "Finland": 0, "France": 1, "FrenchGuiana": 1, "Gabon": 5, "Gambia": 10, "Georgia": 2, "Germany": 0, "Ghana": 3, "Gibraltar": 1, "Greece": 0, "Greenland": 9, "Grenada": 0, "Guadeloupe": 2, "Guam": 4, "Guatemala": 1, "Guinea": 7, "Guinea-Bissau": 1, "Guyana": 1, "Haiti": 0, "Honduras": 1, "HongKong": 1, "Hungary": 0, "Iceland": 1, "India": 3, "Indonesia": 3, "Ireland": 3, "Israel": -1, "Italy": 0, "Jamaica": 0, "Japan": 0, "Kazakhstan": 1, "Kenya": 7, "Kiribati": 6, "Korea,Republicof": 0, "Kosovo": 10, "Kosrae": 22, "Kyrgyzstan": 1, "Latvia": 0, "Lesotho": 7, "Liberia": 9, "Liechtenstein": 3, "Lithuania": 0, "Luxembourg": 1, "Macao": 9, "Madagascar": 7, "Madeira": 1, "Malawi": 9, "Malaysia": 0, "Mali": -6, "Malta": 3, "MarshallIslands": 7, "Martinique": 0, "Mauritius": 0, "Mayotte": -15, "Mexico": 1, "Moldova": -10, "Monaco": 0, "Mongolia": 0, "Montenegro": 5, "Montserrat": -10, "Mozambique": 12, "Myanmar": 2, "Namibia": 6, "Nauru": 7, "Nepal": 3, "Netherlands": 0, "Nevis": 7, "New Caledonia": 1, "New Zealand": 1, "Nicaragua": 1, "Niger": 6, "Nigeria": 3, "Niue": 0, "North Macedonia": 1, "Norway": 0, "Pakistan": 5, "Palau": 0, "PalestinianTerritories": 3, "Panama": 2, "Papua New Guinea": 6, "Paraguay": 3, "Peru": 3, "Philippines": 4, "Pohnpei": 6, "Poland": -1, "Portugal": 4, "Puerto Rico": 0, "Reunion": 1, "Rodrigues": 0, "Romania": 1, "Rota": 0, "Rwanda": 8, "Saba": 13, "St.Barthelemy": -3, "St.Eustatius": 3, "St.Helena": 9, "St.Kitts": 0, "St Lucia": -3, "St.Maarten": 6, "St.Martin": 3, "St.PierreandMiquelon": 13, "St.Vincent&theGrenadines": 2, "Saipan": 0, "Samoa": 11, "San Marino": 4, "SaoTomeandPrıncipe": -2, "Senegal": 1, "Serbia": 2, "Seychelles": 7, "Sierra Leone": 9, "Slovakia": 0, "Slovenia": -1, "SolomonIslands": 1, "South Africa": 4, "SouthSudan": 14, "Spain": 2, "Sri Lanka": 2, "Sudan": -52, "Suriname": 1, "Sweden": 0, "Switzerland": 0, "Tahiti": 0, "Taiwan": 2, "Tanzania": 9, "Thailand": 3, "Timor-Leste": 6, "Tinian": 0, "Togo": 5, "Tonga": 7, "Trinidad&Tobago": 1, "Turkiye": -12, "TurksandCaicos": 5, "Tuvalu": 12, "Uganda": 7, "Ukraine": -3, "United States of America": 1, "Uruguay": 1, "Vanuatu": 11, "Venezuela": 2, "VirginIslands,British": 1, "VirginIslands,U.S.": 1, "Wallis&FutunaIslands": 8, "Yap": 10, "Zambia": 11, "Zimbabwe": 7, "35 Other Lands": 0};
+        const peakByCountry = {"Albania": 5349, "American Samoa": 160, "Andorra": 177, "Angola": 189454, "Anguilla": 73, "Antigua": 452, "Argentina": 157140, "Armenia": 11779, "Aruba": 1106, "Australia": 72095, "Austria": 22487, "Azerbaijan": 1824, "Azores": 828, "Bahamas": 1696, "Bangladesh": 449, "Barbados": 2372, "Belgium": 26746, "Belize": 2532, "Benin": 16233, "Bermuda": 417, "Bolivia": 30730, "Bonaire": 158, "BosniaandHerzegovina": 951, "Botswana": 2543, "Brazil": 938337, "Britain": 144116, "Bulgaria": 3040, "BurkinaFaso": 2120, "Burundi": 21849, "Cambodia": 1300, "Cameroon": 46572, "Canada": 125116, "CapeVerde": 2277, "CaymanIslands": 313, "CentralAfricanRepublic": 3705, "Chad": 1082, "Chile": 88664, "Chuuk": 32, "Colombia": 193778, "Congo,Republicof": 10811, "CookIslands": 209, "Costa Rica": 32604, "Coted’Ivoire": 14068, "Croatia": 4595, "Cuba": 83406, "Curac¸ao": 1930, "Cyprus": 3156, "CzechRepublic": 17496, "Denmark": 14759, "Dominica": 404, "Dominican Republic": 39936, "Ecuador": 104393, "El Salvador": 37406, "EquatorialGuinea": 3132, "Estonia": 4118, "Eswatini": 3519, "Ethiopia": 12853, "FalklandIslands": 9, "FaroeIslands": 126, "Fiji": 3107, "Finland": 18366, "France": 140797, "FrenchGuiana": 3045, "Gabon": 5033, "Gambia": 358, "Georgia": 19523, "Germany": 176478, "Ghana": 163141, "Gibraltar": 169, "Greece": 27682, "Greenland": 139, "Grenada": 566, "Guadeloupe": 8625, "Guam": 772, "Guatemala": 39427, "Guinea": 1389, "Guinea-Bissau": 216, "Guyana": 3322, "Haiti": 16750, "Honduras": 22007, "HongKong": 5588, "Hungary": 21586, "Iceland": 458, "India": 60977, "Indonesia": 32914, "Ireland": 8381, "Israel": 2104, "Italy": 252521, "Jamaica": 10985, "Japan": 214118, "Kazakhstan": 17343, "Kenya": 35011, "Kiribati": 186, "Korea,Republicof": 105726, "Kosovo": 277, "Kosrae": 12, "Kyrgyzstan": 5242, "Latvia": 2104, "Lesotho": 4594, "Liberia": 9225, "Liechtenstein": 108, "Lithuania": 2918, "Luxembourg": 2264, "Macao": 435, "Madagascar": 45673, "Madeira": 1208, "Malawi": 127154, "Malaysia": 5740, "Mali": 366, "Malta": 883, "MarshallIslands": 154, "Martinique": 4825, "Mauritius": 2163, "Mayotte": 131, "Mexico": 887844, "Moldova": 15513, "Monaco": 46, "Mongolia": 469, "Montenegro": 448, "Montserrat": 29, "Mozambique": 109531, "Myanmar": 5382, "Namibia": 3083, "Nauru": 21, "Nepal": 3001, "Netherlands": 29552, "Nevis": 94, "New Caledonia": 2726, "New Zealand": 14809, "Nicaragua": 29071, "Niger": 385, "Nigeria": 421375, "Niue": 21, "North Macedonia": 1275, "Norway": 12096, "Pakistan": 1290, "Palau": 76, "PalestinianTerritories": 81, "Panama": 19323, "Papua New Guinea": 5843, "Paraguay": 11699, "Peru": 139464, "Philippines": 273412, "Pohnpei": 60, "Poland": 113987, "Portugal": 56222, "Puerto Rico": 22806, "Reunion": 3639, "Rodrigues": 74, "Romania": 40545, "Rota": 2, "Rwanda": 39063, "Saba": 19, "St.Barthelemy": 40, "St.Eustatius": 32, "St.Helena": 133, "St.Kitts": 252, "St Lucia": 777, "St.Maarten": 329, "St.Martin": 322, "St.PierreandMiquelon": 30, "St.Vincent&theGrenadines": 305, "Saipan": 236, "Samoa": 669, "San Marino": 218, "SaoTomeandPrıncipe": 842, "Senegal": 1642, "Serbia": 3850, "Seychelles": 417, "Sierra Leone": 2803, "Slovakia": 11267, "Slovenia": 1735, "SolomonIslands": 1814, "South Africa": 107746, "SouthSudan": 2469, "Spain": 127840, "Sri Lanka": 7169, "Sudan": 71, "Suriname": 3265, "Sweden": 22450, "Switzerland": 20352, "Tahiti": 3268, "Taiwan": 11924, "Tanzania": 23789, "Thailand": 5710, "Timor-Leste": 449, "Tinian": 11, "Togo": 25668, "Tonga": 243, "Trinidad&Tobago": 10576, "Turkiye": 4615, "TurksandCaicos": 367, "Tuvalu": 83, "Uganda": 11004, "Ukraine": 99155, "United States of America": 1256919, "Uruguay": 12117, "Vanuatu": 859, "Venezuela": 139199, "VirginIslands,British": 223, "VirginIslands,U.S.": 535, "Wallis&FutunaIslands": 86, "Yap": 37, "Zambia": 284792, "Zimbabwe": 55516, "35 Other Lands": 2};
+const aliases = {"United States of America": "United States", "Russian Federation": "Russia", "Viet Nam": "Vietnam", "Iran, Islamic Republic of": "Iran", "Syrian Arab Republic": "Syria", "Lao People's Democratic Republic": "Laos", "Czechia": "Czech Republic", "Türkiye": "Turkey", "Congo": "Republic of the Congo", "Democratic Republic of the Congo": "Congo, Dem. Republic of", "Republic of the Congo": "Congo, Republic of"};
+
+    // Canonical lookup (helps match name variants like "UnitedStatesofAmerica" vs "United States of America")
+    function canonical(s) {
+      return String(s || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, ""); // strip spaces, punctuation, diacritics (best-effort)
+    }
+    const growthByCanonical = {};
+    const peakByCanonical = {};
+    for (const [k, v] of Object.entries(growthByCountry)) {
+      growthByCanonical[canonical(k)] = v;
+    }
+    for (const [k, v] of Object.entries(peakByCountry)) {
+      peakByCanonical[canonical(k)] = v;
+    }
+
+
+    const map = L.map("map", { worldCopyJump: true }).setView([15, 0], 2);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 6,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    let geoLayer = null;
+    let lockedLayer = null;
+
+    function normalizeName(s) {
+      return String(s || "").trim().replace(/\s+/g, " ");
+    }
+
+    function getGrowth(name) {
+      const n = normalizeName(name);
+      if (Object.prototype.hasOwnProperty.call(growthByCountry, n)) return growthByCountry[n];
+
+      // GeoJSON name -> our dataset alias
+      if (Object.prototype.hasOwnProperty.call(aliases, n)) {
+        const a = aliases[n];
+        if (Object.prototype.hasOwnProperty.call(growthByCountry, a)) return growthByCountry[a];
+        const ca = canonical(a);
+        if (Object.prototype.hasOwnProperty.call(growthByCanonical, ca)) return growthByCanonical[ca];
+      }
+
+      // Canonical fallback (handles glued words, punctuation differences, etc.)
+      const cn = canonical(n);
+      if (Object.prototype.hasOwnProperty.call(growthByCanonical, cn)) return growthByCanonical[cn];
+
+      return null;
+    }
+
+    
+    function getPeak(name) {
+      const n = normalizeName(name);
+      if (Object.prototype.hasOwnProperty.call(peakByCountry, n)) return peakByCountry[n];
+
+      if (Object.prototype.hasOwnProperty.call(aliases, n)) {
+        const a = aliases[n];
+        if (Object.prototype.hasOwnProperty.call(peakByCountry, a)) return peakByCountry[a];
+        const ca = canonical(a);
+        if (Object.prototype.hasOwnProperty.call(peakByCanonical, ca)) return peakByCanonical[ca];
+      }
+
+      const cn = canonical(n);
+      if (Object.prototype.hasOwnProperty.call(peakByCanonical, cn)) return peakByCanonical[cn];
+
+      return null;
+    }
+
+    function colorForGrowth(g) {
+      if (g === null || Number.isNaN(g)) return "#d9d9d9";
+      if (g < -2) return "#b2182b";
+      if (g < 0) return "#ef8a62";
+      if (g === 0) return "#f7f7f7";
+      if (g <= 1) return "#d9f0d3";
+      if (g <= 2) return "#a6dba0";
+      if (g <= 3) return "#5aae61";
+      if (g <= 5) return "#1b7837";
+      return "#00441b";
+    }
+
+    function styleFeature(feature) {
+      const name = feature?.properties?.name || "";
+      const g = getGrowth(name);
+      return {
+        weight: 1,
+        color: "#666",
+        fillColor: colorForGrowth(g),
+        fillOpacity: 0.82
+      };
+    }
+
+    function highlight(layer) {
+      layer.setStyle({ weight: 2, color: "#111" });
+      layer.bringToFront();
+    }
+
+    function resetHighlight(layer) {
+      if (geoLayer) geoLayer.resetStyle(layer);
+    }
+
+    function showTooltip(layer) {
+      const name = layer.feature?.properties?.name || "Unknown";
+      const g = getGrowth(name);
+      const gText = (g === null || Number.isNaN(g)) ? "No data" : (Number(g).toFixed(0) + "%");
+      const p = getPeak(name);
+      const pText = (p === null || Number.isNaN(p)) ? "No data" : Number(p).toLocaleString();
+      layer.bindTooltip(`${name}<br>Growth: ${gText}<br>Pub: ${pText}`, {
+        sticky: true,
+        permanent: false,
+        direction: "auto",
+        opacity: 0.95
+      }).openTooltip();
+    }
+
+    function onEachFeature(feature, layer) {
+      layer.on({
+        mouseover: () => {
+          if (lockedLayer && lockedLayer !== layer) return;
+          highlight(layer);
+          showTooltip(layer);
+        },
+        mouseout: () => {
+          if (lockedLayer && lockedLayer !== layer) return;
+          resetHighlight(layer);
+          if (!lockedLayer) layer.closeTooltip();
+        },
+        click: () => {
+          if (lockedLayer === layer) {
+            lockedLayer = null;
+            resetHighlight(layer);
+            layer.closeTooltip();
+          } else {
+            if (lockedLayer) {
+              resetHighlight(lockedLayer);
+              lockedLayer.closeTooltip();
+            }
+            lockedLayer = layer;
+            highlight(layer);
+            showTooltip(layer);
+          }
+        }
+      });
+    }
+
+    function renderLegend() {
+      const el = document.getElementById("legendItems");
+      el.innerHTML = "";
+      const items = [
+        { c: "#b2182b", t: "< -2%" },
+        { c: "#ef8a62", t: "-2% to 0%" },
+        { c: "#f7f7f7", t: "0%" },
+        { c: "#d9f0d3", t: "0% to 1%" },
+        { c: "#a6dba0", t: "1% to 2%" },
+        { c: "#5aae61", t: "2% to 3%" },
+        { c: "#1b7837", t: "3% to 5%" },
+        { c: "#00441b", t: "> 5%" },
+        { c: "#d9d9d9", t: "No data" }
+      ];
+      const wrap = document.createElement("div");
+      wrap.className = "legend-scale";
+      items.forEach(it => {
+        const sw = document.createElement("div");
+        sw.className = "swatch";
+        sw.style.background = it.c;
+        const tx = document.createElement("div");
+        tx.textContent = it.t;
+        wrap.appendChild(sw);
+        wrap.appendChild(tx);
+      });
+      el.appendChild(wrap);
+    }
+
+    function refreshCoverage() {
+      let matched = 0;
+      geoLayer.eachLayer(layer => {
+        const name = layer.feature?.properties?.name || "";
+        const g = getGrowth(name);
+        if (g !== null && !Number.isNaN(g)) matched++;
+      });
+      document.getElementById("coverage").textContent = matched;
+    }
+
+    async function loadGeo() {
+      const url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json";
+      const res = await fetch(url);
+      const geo = await res.json();
+      window.__geoData = geo;
+      geoLayer = L.geoJSON(geo, {
+        style: styleFeature,
+        onEachFeature
+      }).addTo(map);
+      renderLegend();
+      refreshCoverage();
+      
+      // Nuclear option for stubborn mobile repaint glitches:
+      // Rebuild the GeoJSON layer after pan/zoom settles (mobile only), debounced.
+      function isMobile() {
+        return window.matchMedia && window.matchMedia("(max-width: 768px)").matches;
+      }
+
+      function rebuildGeoLayer() {
+        try {
+          if (!window.__geoData) return;
+          if (lockedLayer) { lockedLayer = null; }
+
+          if (geoLayer) {
+            geoLayer.remove();
+          }
+          geoLayer = L.geoJSON(window.__geoData, {
+            style: styleFeature,
+            onEachFeature,
+          }).addTo(map);
+
+          // After rebuild, refresh the match counter
+          refreshCoverage();
+        } catch (e) {}
+      }
+
+      let _rebuildTimer = null;
+      function scheduleRebuild() {
+        if (!isMobile()) return;
+        if (_rebuildTimer) clearTimeout(_rebuildTimer);
+        _rebuildTimer = setTimeout(() => {
+          rebuildGeoLayer();
+        }, 220);
+      }
+
+      map.on("moveend", scheduleRebuild);
+      map.on("zoomend", scheduleRebuild);
+
+      // Force redraw on some mobile browsers that occasionally skip vector repaints
+      function forceRedraw() {
+        try {
+          if (!geoLayer) return;
+          geoLayer.setStyle(styleFeature);
+          geoLayer.eachLayer(l => { if (l && typeof l.redraw === "function") l.redraw(); });
+        } catch (e) {}
+      }
+
+      map.on("moveend", forceRedraw);
+      map.on("zoomend", forceRedraw);
+      map.on("resize", forceRedraw);
+
+    }
+
+    function setUpSearch() {
+      const box = document.getElementById("searchBox");
+      box.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const q = normalizeName(box.value).toLowerCase();
+        if (!q || !geoLayer) return;
+
+        let found = null;
+        geoLayer.eachLayer(layer => {
+          const name = normalizeName(layer.feature?.properties?.name || "");
+          if (name.toLowerCase() === q) found = layer;
+        });
+
+        if (!found) {
+          geoLayer.eachLayer(layer => {
+            const name = normalizeName(layer.feature?.properties?.name || "");
+            if (name.toLowerCase().includes(q)) found = found || layer;
+          });
+        }
+
+        if (found) {
+          map.fitBounds(found.getBounds(), { padding: [20, 20] });
+          showTooltip(found);
+        }
+      });
+    }
+
+    loadGeo().then(() => { setUpSearch(); setTimeout(() => { try { map.invalidateSize(); if (geoLayer) { geoLayer.setStyle(styleFeature); geoLayer.eachLayer(l => { if (l && typeof l.redraw === 'function') l.redraw(); }); } } catch(e) {} }, 220); });
+  
+    // Panel toggle
+    const toggleBtn = document.getElementById("panelToggle");
+    const showBtn = document.getElementById("panelShowBtn");
+
+    function setCollapsed(collapsed) {
+      document.body.classList.toggle("panel-collapsed", collapsed);
+      if (toggleBtn) toggleBtn.textContent = collapsed ? "Show" : "Hide";
+
+      // Leaflet needs a resize notification when its container changes size
+      setTimeout(() => {
+        try {
+          map.invalidateSize();
+          // Force a repaint of vector fills after resize (prevents partial disappearance on some mobile GPUs)
+          if (geoLayer) { geoLayer.setStyle(styleFeature); geoLayer.eachLayer(l => { if (l && typeof l.redraw === 'function') l.redraw(); }); }
+        } catch (e) {}
+      }, 220);
+    }
+
+    toggleBtn?.addEventListener("click", () => {
+      const isCollapsed = document.body.classList.contains("panel-collapsed");
+      setCollapsed(!isCollapsed);
+    });
+
+    showBtn?.addEventListener("click", () => {
+      setCollapsed(false);
+    });
+
+  </script>
+</body>
+</html>
